@@ -9,7 +9,7 @@ fastify.get('/getUsers', async (request, reply) => {
 
 fastify.post('/addEvent', async (request, reply) => {
   try {
-    const resp = await addEventRequest(request);
+    const resp = await circuitBreaker.execute(() => addEventRequest(request));
     reply.send(resp);
   } catch (error) {
     reply.status(503).send({
@@ -78,3 +78,43 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
   }
   throw lastError;
 }
+
+const circuitBreaker = {
+  state: 'CLOSED',
+  failureCount: 0,
+  lastFailure: 0,
+  threshold: 3,         // 3 Errors - Closing the chain
+  resetTimeout: 30000,  // 30 seconds in Open condition
+
+  async execute(fn) {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailure < this.resetTimeout) {
+        throw new Error('CircuitBreaker: Active');
+      }
+      this.state = 'HALF_OPEN';
+    }
+
+    try {
+      const result = await fn();
+      this.reset();
+      return result;
+    } catch (error) {
+      this.recordFailure();
+      throw error;
+    }
+  },
+
+  recordFailure() {
+    this.failureCount++;
+    this.lastFailure = Date.now();
+    if (this.failureCount >= this.threshold || this.state === 'HALF_OPEN') {
+      this.state = 'OPEN';
+      setTimeout(() => this.state = 'HALF_OPEN', this.resetTimeout);
+    }
+  },
+
+  reset() {
+    this.state = 'CLOSED';
+    this.failureCount = 0;
+  }
+};
