@@ -9,17 +9,14 @@ fastify.get('/getUsers', async (request, reply) => {
 
 fastify.post('/addEvent', async (request, reply) => {
   try {
-    const resp = await fetch('http://event.com/addEvent', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: new Date().getTime(),
-        ...request.body
-      })
+    const resp = await addEventRequest(request);
+    reply.send(resp);
+  } catch (error) {
+    reply.status(503).send({
+      success: false,
+      error: 'Service temporarily unavailable',
+      message: error.message
     });
-    const data = await resp.json();
-    reply.send(data);
-  } catch(err) {
-    reply.error(err);
   }
 });
 
@@ -51,3 +48,33 @@ fastify.listen({ port: 3000 }, (err) => {
       process.exit();
     }
 });
+
+async function addEventRequest(request) {
+  return fetchWithRetry('http://event.com/addEvent', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: new Date().getTime(),
+        ...request.body
+      })
+  });
+}
+
+async function fetchWithRetry(url, options, maxRetries = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // console.log(`Attempt ${attempt}/${maxRetries}`);
+      try {
+          const response = await fetch(url, options);
+          if (response.ok) return await response.json();
+          throw new Error(`Service unavailable (HTTP ${response.status})`);
+      } catch (error) {
+          lastError = error;
+          if (attempt < maxRetries) {
+              const delay = Math.pow(2, attempt) * 100;
+              // console.log(`Waiting ${delay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+          }
+      }
+  }
+  throw lastError;
+}
