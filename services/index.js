@@ -33,14 +33,14 @@ fastify.get('/getEventsByUserId/:id', async (request, reply) => {
     const { id } = request.params;
     const user = await fetch('http://event.com/getUserById/' + id);
     const userData = await user.json();
-    const userEvents = userData.events;
-    const eventArray = [];
+
+    // Create an array of Promises for parallel queries
+    const eventPromises = userData.events.map(eventId => 
+      fetch('http://event.com/getEventById/' + eventId).then(res => res.json())
+    );
     
-    for(let i = 0; i < userEvents.length; i++) {
-        const event = await fetch('http://event.com/getEventById/' + userEvents[i]);
-        const eventData = await event.json();
-        eventArray.push(eventData);
-    }
+    // Launch all requests at the same time
+    const eventArray = await Promise.all(eventPromises);
     reply.send(eventArray);
 });
 
